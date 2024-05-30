@@ -278,7 +278,8 @@ small_multiples_plot <- function(input_list, focus_node){
     geom_edge_link(start_cap = circle(3, 'mm'), end_cap = circle(3, "mm"), width =1, alpha = 0.3)+
     geom_node_point(aes(color = hl), size =5, show.legend = T)+
     geom_node_text(aes(label = name), repel = T, fontface = "bold", max.overlaps = 15) +
-    facet_edges(~id)
+    facet_edges(~id)+
+    theme_graph()+labs(color = 'Node status')
   return(small_mult)
 }
 
