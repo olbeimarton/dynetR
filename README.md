@@ -65,7 +65,9 @@ The second element is a simple plot visualising the union network and the rewiri
 
 
 **Structural rewiring**
+
 By default, `dynetR` uses the weight values in the adjacency matrix / edge list to calculate rewiring. If you are only interested in rewiring changes caused by topological differences, set the `structure_only` parameter to `TRUE`, which will replace all non-zero values with `1`.
+
 `dynetR(mList, structure_only = T)`
 
 **Small multiples plot**
