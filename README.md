@@ -30,15 +30,16 @@ To install the package use
 
 **Edge list input example**
 ```
-el1 <- data.frame(from = c(0,1,2,3,4),
-                  to = c(1,0,3,4,0),
+el1 <- data.frame(from = c('0','1','2','3','4'),
+                  to = c('1','0','3','4','0'),
                   weight= c(1,1,1,1,1))
-el2 <- data.frame(from = c(1,0,2,4,3),
-                  to = c(0,0,2,4,1),
+el2 <- data.frame(from = c('1','0','2','4','3'),
+                  to = c('0','0','2','4','1'),
                   weight= c(1,1,1,1,1))
-el3 <- data.frame(from = c(1,2,4,3,0),
-                  to = c(1,0,3,4,0),
+el3 <- data.frame(from = c('1','2','4','3','0'),
+                  to = c('1','0','3','4','0'),
                   weight= c(1,1,1,1,1))
+
 
 mList1 <- list('a' = el1, 'b' = el2,'c' = el3)
 ```
