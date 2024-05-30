@@ -111,7 +111,16 @@ format_indata <- function(input_list) {
   return(union_matrix)
 }
 
+#' @title Helper function to create a combined edgelist out of input adj. matrices
+#' @description Builds an edgelist out of adj. matrices
+#' @param adj_matrices An input  adjacency matrix
+#'
 
+.indata_to_edgelist <- function(ingraph){
+  g<-graph.adjacency(ingraph,weighted=TRUE)
+  out<-get.data.frame(g)
+  return(out)
+}
 
 #' Helper function to summarise matrices
 .sumMatrices <- function(matrices) {
@@ -224,16 +233,55 @@ dynetR <- function(matrix_list) {
     activate(nodes) |>
     left_join(output_dataframe) |>
       ggraph(layout = "nicely") +
-      geom_edge_link() +
+      geom_edge_link(start_cap = circle(3, 'mm'), end_cap = circle(3, "mm"), width =1, alpha = 0.5)+
       geom_node_point(aes(fill = rewiring, size = degree), shape = 21) +
       scale_fill_distiller(palette = "Reds", direction = 1) +
       geom_node_text(aes(label = name, size = degree), repel = T, fontface = "bold", max.overlaps = 15) +
       scale_size_continuous(range = c(6, 10)) +
       theme_graph()
 
+  # returned data
   output <- list(output_dataframe, unimatrix_graph)
   return(output)
 }
+
+#' @title Small multiples plot
+#'
+#' @description Draws a small multiples plot from the input networks focussing on a specific node
+#' @import igraph
+#' @import readr
+#' @import ggplot2
+#' @import ggraph
+#' @import tidygraph
+#' @import dplyr
+#' @import tibble
+#' @import Matrix
+#' @param matrix_list List of named adjacency matrices corresponding to the input networks, same as input to dynetR.
+#' @param focus_node Character, name of node to focus visualisation on.
+#'
+#' @export
+
+small_multiples_plot <- function(input_list, focus_node){
+  # data for small multiples plot
+  ellist<-lapply(input_list, .indata_to_edgelist)
+  long_df <- dplyr::bind_rows(ellist,.id = "id") |> dplyr::tibble()
+
+  small_mult<-long_df |> dplyr::select(from,to, id) |> distinct() |> dplyr::filter(paste0(focus_node) %in% from | paste0(focus_node) %in% to) |>
+    as_tbl_graph() |>
+    activate(nodes) |>
+    mutate(hl = case_when(
+      name %in% paste0(focus_node) ~ 'Focus node',
+      TRUE ~ 'Other nodes'
+    )
+    ) |>
+    ggraph(layout='linear', circular = T)+
+    geom_edge_link(start_cap = circle(3, 'mm'), end_cap = circle(3, "mm"), width =1, alpha = 0.3)+
+    geom_node_point(aes(color = hl), size =5, show.legend = T)+
+    geom_node_text(aes(label = name), repel = T, fontface = "bold", max.overlaps = 15) +
+    facet_edges(~id)
+  return(small_mult)
+}
+
 
 #' Helper function to pretty print matrices
 .mat_op_print <- function(..., width = 0) {

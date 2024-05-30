@@ -2,6 +2,7 @@
 
 export("%>%")
 export(dynetR)
+export(small_multiples_plot)
 import(Matrix)
 import(dplyr)
 import(ggplot2)
