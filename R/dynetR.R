@@ -183,11 +183,11 @@ format_indata <- function(input_list) {
 #' @import tibble
 #' @import Matrix
 #' @param matrix_list List of adjacency matrices corresponding to the input networks.
-#' @param structure_only Logical, replaces non-zero adj. matrix values with 1
+#' @param structure_only Logical, replaces non-zero adj. matrix values with 1. Default is FALSE.
 #'
 #' @export
 
-dynetR <- function(matrix_list, structure_only) {
+dynetR <- function(matrix_list, structure_only = F) {
   # format input data
   matrix_list <- format_indata(matrix_list)
 
