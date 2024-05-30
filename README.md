@@ -49,4 +49,4 @@ The `small_multiples_plot` function returns a small multiples plot, focussing on
 
 `small_multiples_plot(mList, 'F')`
 
-![output small multiples plot](small_multiples_plot.png)
+![output small multiples plot](small_multiples_example.png)
