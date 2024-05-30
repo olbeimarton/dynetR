@@ -1,7 +1,11 @@
 # dynetR
 R implementation of the DyNet network rewiring algorithm as described in [Goenawan et al., 2016](https://academic.oup.com/bioinformatics/article/32/17/2713/2450724).
 
-The main function, `dynetR` takes a named list of weighted edge lists or adjacency matrices to calculate rewiring values as described in the paper.
+The main function, `dynetR` takes a **named[^1]** list of weighted edge lists[^2] or adjacency matrices[^3] to calculate rewiring values as described in the paper.
+
+[^1]: Important to help the user keep track of the input networks, especially for the small multiples plot.
+[^2]: Edge lists should follow the igraph convention, i.e. columns titled `from, to, weight`
+[^3]: Make sure to name at least the columns of the adj. matrix with the corresponding node names.
 
 To install the package use
 `devtools::install_github('olbeimarton/dynetR')`
