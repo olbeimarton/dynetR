@@ -10,7 +10,7 @@ The main function, `dynetR` takes a **named[^1]** list of weighted edge lists[^2
 To install the package use
 `devtools::install_github('olbeimarton/dynetR')`
 
-Example
+**Adjacency matrix input example**
 
 `m1 <- matrix(rnorm(36), nrow = 6,  dimnames = list(c("A", "B","C","D","E","F"),
                                                     c("A", "B","C","D","E","F")))`
@@ -27,6 +27,23 @@ Example
 `m5 <- matrix(rnorm(9), nrow = 3,  dimnames = list(c("A", "B","C"), c("A", "B","C")))`
                                                     
  `mList <- list('a' = m1, 'b' = m2, 'c' = m3, 'd' = m4, 'e' = m5)`
+
+**Edge list input example**
+```
+el1 <- data.frame(from = c(0,1,2,3,4),
+                  to = c(1,0,3,4,0),
+                  weight= c(1,1,1,1,1))
+el2 <- data.frame(from = c(1,0,2,4,3),
+                  to = c(0,0,2,4,1),
+                  weight= c(1,1,1,1,1))
+el3 <- data.frame(from = c(1,2,4,3,0),
+                  to = c(1,0,3,4,0),
+                  weight= c(1,1,1,1,1))
+
+mList1 <- list('a' = el1, 'b' = el2,'c' = el3)
+```
+
+**Running dynetR**
  
  `output<-dynetR(mList)`
 
