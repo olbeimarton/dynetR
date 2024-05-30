@@ -24,6 +24,8 @@
   gdf1 <- get.adjacency(g1, attr = "weight", sparse = F)
 }
 
+
+
 #' @title Helper function to format input data, matrix or edge list df
 #' @description Formats input list data depending on input type
 #' @param input_list A list of matrices or edge lists
@@ -41,7 +43,6 @@ format_indata <- function(input_list) {
   }
   return(formatted_matrix_list)
 }
-
 
 #' @title Helper function to expand adjacency matrices to include all unique nodes
 #' @description Expands formatted adjacency matrices to matching sizes
@@ -163,6 +164,11 @@ format_indata <- function(input_list) {
   return(result)
 }
 
+# Helper function to format matrix for structural rewiring
+.structure_format <- function(inmat){
+  outmat <- ifelse(inmat!=0,1,inmat)
+  return(outmat)
+}
 
 #' @title Calculate the DyNet rewiring values for multiple graphs (adjacency matrices)
 #'
@@ -177,15 +183,24 @@ format_indata <- function(input_list) {
 #' @import tibble
 #' @import Matrix
 #' @param matrix_list List of adjacency matrices corresponding to the input networks.
+#' @param structure_only Logical, replaces non-zero adj. matrix values with 1
 #'
 #' @export
 
-dynetR <- function(matrix_list) {
+dynetR <- function(matrix_list, structure_only) {
   # format input data
   matrix_list <- format_indata(matrix_list)
 
+  # replace with 0 / 1 if structural rew. only
+
+  if (structure_only == TRUE){
+    matrix_list_str <- lapply(matrix_list, .structure_format)
+  } else if (structure_only == FALSE){
+    matrix_list_str <- matrix_list
+  }
+
   # Match matrix sizes
-  expanded_matrices <- .expand_adjacency_matrices(matrix_list)
+  expanded_matrices <- .expand_adjacency_matrices(matrix_list_str)
 
   # Calculate non-zero means of matrices
   nonZeroMean <- .sumMatrices(expanded_matrices)
@@ -263,7 +278,10 @@ dynetR <- function(matrix_list) {
 
 small_multiples_plot <- function(input_list, focus_node){
   # data for small multiples plot
-  ellist<-lapply(input_list, .indata_to_edgelist)
+  # format input data
+  matrix_list <- format_indata(input_list)
+
+  ellist<-lapply(matrix_list, .indata_to_edgelist)
   long_df <- dplyr::bind_rows(ellist,.id = "id") |> dplyr::tibble()
 
   small_mult<-long_df |> dplyr::select(from,to, id) |> distinct() |> dplyr::filter(paste0(focus_node) %in% from | paste0(focus_node) %in% to) |>
