@@ -47,7 +47,7 @@ mList1 <- list('a' = el1, 'b' = el2,'c' = el3)
  
  `output<-dynetR(mList)`
 
-The main function, `dynetR`, returns a list of items. The first item in the list is a dataframe with the node rewiring values: 
+The main function, `dynetR`, returns a list of items. The first item in the returned list is a dataframe with the node rewiring values: 
 ```
 > output
 [[1]]
@@ -63,6 +63,12 @@ The second element is a simple plot visualising the union network and the rewiri
 
 ![output plot](example_plot.png)
 
+
+**Structural rewiring**
+By default, `dynetR` uses the weight values in the adjacency matrix / edge list to calculate rewiring. If you are only interested in rewiring changes caused by topological differences, set the `structure_only` parameter to `TRUE`, which will replace all non-zero values with `1`.
+`dynetR(mList, structure_only = T)`
+
+**Small multiples plot**
 
 A typical follow-up analysis usually involves a more in-depth study of the most rewired nodes, to understand why they are rewired. 
 
