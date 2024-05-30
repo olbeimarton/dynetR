@@ -1,30 +1,31 @@
 # dynetR
 R implementation of the DyNet network rewiring algorithm as described in [Goenawan et al., 2016](https://academic.oup.com/bioinformatics/article/32/17/2713/2450724).
 
-The main function, `dynetR` takes a **named[^1]** list of weighted edge lists[^2] or adjacency matrices[^3] to calculate rewiring values as described in the paper.
+The main function, `dynetR` takes a **named[^1]** list of weighted[^2] edge lists[^3] or adjacency matrices[^4] to calculate rewiring values as described in the paper.
 
 [^1]: Important to help the user keep track of the input networks, especially for the small multiples plot.
-[^2]: Edge lists should follow the igraph convention, i.e. columns titled `from, to, weight`
-[^3]: Make sure to name at least the columns of the adj. matrix with the corresponding node names.
+[^2]: Please make sure to use positive weights only.
+[^3]: Edge lists should follow the igraph convention, i.e. columns titled `from, to, weight`
+[^4]: Make sure to name at least the columns of the adj. matrix with the corresponding node names.
 
 To install the package use
 `devtools::install_github('olbeimarton/dynetR')`
 
 **Adjacency matrix input example**
 
-`m1 <- matrix(rnorm(36), nrow = 6,  dimnames = list(c("A", "B","C","D","E","F"),
+`m1 <- matrix(rnorm(36, mean = 5), nrow = 6,  dimnames = list(c("A", "B","C","D","E","F"),
                                                     c("A", "B","C","D","E","F")))`
                                                     
-`m2 <- matrix(rnorm(36), nrow = 6,  dimnames = list(c("A", "B","C","D","E","F"),
+`m2 <- matrix(rnorm(36, mean = 5), nrow = 6,  dimnames = list(c("A", "B","C","D","E","F"),
                                                     c("A", "B","C","D","E","F")))`
                                                     
- `m3 <- matrix(rnorm(36), nrow = 6,  dimnames = list(c("A", "B","C","D","E","F"),
+ `m3 <- matrix(rnorm(36, mean = 5), nrow = 6,  dimnames = list(c("A", "B","C","D","E","F"),
                                                     c("A", "B","C","D","E","F")))`
                                                     
- `m4 <- matrix(rnorm(36), nrow = 6,  dimnames = list(c("A", "B","C","D","E","F"),
+ `m4 <- matrix(rnorm(36, mean = 5), nrow = 6,  dimnames = list(c("A", "B","C","D","E","F"),
                                                     c("A", "B","C","D","E","F")))`
 
-`m5 <- matrix(rnorm(9), nrow = 3,  dimnames = list(c("A", "B","C"), c("A", "B","C")))`
+`m5 <- matrix(rnorm(9, mean = 5), nrow = 3,  dimnames = list(c("A", "B","C"), c("A", "B","C")))`
                                                     
  `mList <- list('a' = m1, 'b' = m2, 'c' = m3, 'd' = m4, 'e' = m5)`
 
