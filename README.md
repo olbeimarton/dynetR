@@ -93,7 +93,51 @@ The `small_multiples_plot` function returns a small multiples plot, focussing on
 
 ![output small multiples plot](small_multiples_example.png)
 
+### Additional network comparison options
 
-**Upcoming functionalities**
-- Differential targeting analysis
-- Novel visualisation options
+**Jaccard-index**
+The `calculate_jaccard_indices` function takes the same input list of networks (edgelists, adjacency matrices etc.) as `dynetR` to calculate the Jaccard-index between all compared networks. This is useful for quickly establishing the global similarity of networks.
+
+```
+jaccard<-calculate_jaccard_indices(mList)
+# results can be visualised in a number of ways, including the built in R heatmap function
+heatmap(jaccard)
+```
+![output of Jaccard comparison](jaccard_heatmap.png)
+
+**Differential targeting**
+When analysing directed networks, for example gene regulatory networks, it is often interesting to investigate whether certain genes receive more or less regulatory inputs from the available regulators. The `compare_targeting` function returns a long format dataframe containing the targeting values (weighted in-degree) for all nodes in all contrasts, and calculates their absolute differences and log2 ratios.
+
+compare_targeting(mList)
+```
+# A tibble: 48 × 6
+   name  compared_networks targetingNet1    targetingNet2    deltaTargeting log2TargetingFC
+   <chr> <chr>             <chr>            <chr>                     <dbl>           <dbl>
+ 1 A     1_vs_2            27.6346392300918 27.6874690512176         0.0528        -0.00276
+ 2 B     1_vs_2            29.8726112282955 26.9418521610785         2.93           0.149  
+ 3 C     1_vs_2            28.5670161764824 32.060872844062          3.49          -0.166  
+ 4 D     1_vs_2            24.2359415913853 30.232862221301          6.00          -0.319  
+ 5 E     1_vs_2            33.4329853975894 31.2644101654748         2.17           0.0968 
+ 6 F     1_vs_2            23.9585795470352 28.2588353526615         4.30          -0.238  
+ 7 A     1_vs_3            27.6346392300918 32.0685564274156         4.43          -0.215  
+ 8 B     1_vs_3            29.8726112282955 30.3004109595961         0.428         -0.0205 
+ 9 C     1_vs_3            28.5670161764824 29.9136675030772         1.35          -0.0665 
+10 D     1_vs_3            24.2359415913853 28.6473055140799         4.41          -0.241  
+# ℹ 38 more rows
+# ℹ Use `print(n = ...)` to see more rows
+```
+The results can be visualised in a number of ways, here's an example using `ggplot2`
+
+```
+targeting_example<-compare_targeting(mList)
+
+library(ggplot2)
+
+ggplot(targeting_example, aes(x = compared_networks, y = log2TargetingFC, fill = name )) +
+  geom_bar(stat = 'identity', position = 'dodge') +
+  coord_flip()+
+  labs(title = 'Log2 Targeting Ratio Across Network Comparisons', x = 'Comparison', y = 'Log2 Targeting') +
+  theme_minimal()
+```
+
+![output of diff targeting](targeting.png)

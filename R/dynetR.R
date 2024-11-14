@@ -466,3 +466,153 @@ small_multiples_plot <- function(input_list, focus_node){
   print(rewiring)
   print(matrix_union)
 }
+
+# Jaccard Index Function for Adjacency Matrices
+.jaccard_index <- function(adj1, adj2) {
+  # adj1 and adj2 are adjacency matrices
+
+  # Extract edges from the adjacency matrices
+  # For directed graphs, consider all non-zero entries
+  edges1 <- which(adj1 != 0, arr.ind = TRUE)
+  edges2 <- which(adj2 != 0, arr.ind = TRUE)
+
+  # Convert edges to data frames for merging
+  set1 <- as.data.frame(edges1)
+  set2 <- as.data.frame(edges2)
+
+  # Combine both sets of edges and find unique edges (Union)
+  union_set <- unique(rbind(set1, set2))
+
+  # Find the intersection of edges
+  intersection_set <- merge(set1, set2, by = c("row", "col"))
+
+  # Jaccard index calculation
+  jaccard <- nrow(intersection_set) / nrow(union_set)
+
+  return(jaccard)
+}
+
+#' @title Calculate Jaccard Indices
+#'
+#' @description Function to Calculate Jaccard Indices for a List of Networks. Returns a matrix containing the Jaccard indexes for all compared networks in the list.
+#' @import igraph
+#' @import readr
+#' @import ggplot2
+#' @import ggraph
+#' @import tidygraph
+#' @import dplyr
+#' @import tibble
+#' @import Matrix
+#' @param networks List of named adjacency matrices corresponding to the input networks, same as input to dynetR.
+#' @param focus_node Character, name of node to focus visualisation on.
+#'
+#' @export
+
+calculate_jaccard_indices <- function(networks) {
+
+  networks <- format_indata(networks)
+  # networks: a list of adjacency matrices
+  n <- length(networks)
+
+  # Get or assign network names
+  if (is.null(names(networks))) {
+    network_names <- paste0("Network_", seq_len(n))
+  } else {
+    network_names <- names(networks)
+  }
+
+  # Initialize a matrix to store Jaccard indices
+  jaccard_matrix <- matrix(0, n, n)
+  colnames(jaccard_matrix) <- network_names
+  rownames(jaccard_matrix) <- network_names
+
+  # Calculate Jaccard indices for all pairs of networks
+  for (i in 1:n) {
+    for (j in i:n) {
+      jaccard_value <- .jaccard_index(networks[[i]], networks[[j]])
+      jaccard_matrix[i, j] <- jaccard_value
+      jaccard_matrix[j, i] <- jaccard_value  # Since the Jaccard index is symmetric
+    }
+  }
+
+  return(jaccard_matrix)
+}
+
+#' @title Compare targeting
+#'
+#' @description Function to Calculate differential targeting values for all compared networks. Returns a dataframe containing the compared node, networks, targeting values, absoulte difference and log2 ratio of targeting values.
+#' @import igraph
+#' @import readr
+#' @import ggplot2
+#' @import ggraph
+#' @import tidygraph
+#' @import dplyr
+#' @import tibble
+#' @import Matrix
+#' @param input_list List of named adjacency matrices corresponding to the input networks, same as input to dynetR.
+#'
+#' @export
+
+compare_targeting <- function(input_list) {
+  # Format the input data
+  formatted_matrix_list <- format_indata(input_list)
+
+  # Compute targeting measures for each network
+  targeting_list <- lapply(seq_along(formatted_matrix_list), function(i) {
+    adj_matrix <- formatted_matrix_list[[i]]
+
+    # Convert adjacency matrix to an igraph object with weights
+    g <- graph_from_adjacency_matrix(adj_matrix, mode = 'directed', weighted = TRUE)
+
+    # Convert to tbl_graph for tidygraph operations
+    g_tbl <- as_tbl_graph(g)
+
+    # Compute in-degree centrality (targeting) with weights
+    df <- g_tbl %>%
+      activate(nodes) %>%
+      mutate(targeting = centrality_degree(mode = 'in', weights = weight)) %>%
+      as_tibble()
+
+    # Add network identifier
+    df$network_id <- i
+    return(df[, c('name', 'targeting', 'network_id')])
+  })
+
+  # Combine all targeting data into one long dataframe
+  all_targeting <- bind_rows(targeting_list)
+
+  # Generate all unique pairs of networks
+  pairs <- combn(unique(all_targeting$network_id), 2)
+
+  # Initialize a list to store comparison results
+  result_list <- list()
+
+  # Compare targeting measures for each pair of networks
+  for (k in 1:ncol(pairs)) {
+    i <- pairs[1, k]
+    j <- pairs[2, k]
+
+    df_i <- all_targeting %>% filter(network_id == i)
+    df_j <- all_targeting %>% filter(network_id == j)
+
+    # Merge dataframes on 'name' and calculate deltaTargeting
+    df_compare <- df_i %>%
+      inner_join(df_j, by = 'name', suffix = c('_i', '_j')) %>%
+      mutate(
+        compared_networks = paste0(i, '_vs_', j),
+        targetingNet1 = paste0(targeting_i),
+        targetingNet2 = paste0(targeting_j),
+        deltaTargeting = abs(targeting_i - targeting_j),
+        log2TargetingFC = log2(targeting_i / targeting_j)
+      ) %>%
+      select(name, compared_networks,targetingNet1,targetingNet2, deltaTargeting,,log2TargetingFC)
+
+    # Store the comparison result
+    result_list[[k]] <- df_compare
+  }
+
+  # Combine all comparison results into one dataframe
+  all_results <- bind_rows(result_list)
+
+  return(all_results)
+}
