@@ -20,8 +20,8 @@
 #'
 #'
 .edgelist_to_adjacency <- function(el) {
-  g1 <- graph.data.frame(el)
-  gdf1 <- get.adjacency(g1, attr = "weight", sparse = F)
+  g1 <- graph_from_data_frame(el)
+  gdf1 <- as_adjacency_matrix(g1, attr = "weight", sparse = F)
 }
 
 
@@ -34,15 +34,40 @@
 format_indata <- function(input_list) {
   # checking if elements are matrices
   if (all(sapply(input_list, is.matrix))) {
-    # do stuff
+    # Ensure rownames match colnames for matrices
     formatted_matrix_list <- lapply(input_list, .set_rownames_to_colnames)
   } else if (all(sapply(input_list, is.data.frame))) {
     formatted_matrix_list <- lapply(input_list, .edgelist_to_adjacency)
+  } else if (all(sapply(input_list, is_igraph))) {
+    formatted_matrix_list <- lapply(input_list, function(graph) {
+      mat <- as_adjacency_matrix(graph, sparse = FALSE)
+      # Get node names, if they exist; otherwise, use node indices
+      node_names <- V(graph)$name
+      if (is.null(node_names)) {
+        node_names <- as.character(V(graph))
+      }
+      rownames(mat) <- node_names
+      colnames(mat) <- node_names
+      return(mat)
+    })
+  } else if (all(sapply(input_list, is.tbl_graph))) {
+    formatted_matrix_list <- lapply(input_list, function(graph) {
+      mat <- as_adjacency_matrix(graph, sparse = FALSE)
+      node_names <- V(graph)$name
+      if (is.null(node_names)) {
+        node_names <- as.character(V(graph))
+      }
+      rownames(mat) <- node_names
+      colnames(mat) <- node_names
+      return(mat)
+    })
   } else {
-    stop("Input must be a matrix or an edge list data frame.")
+    stop("Input must be a matrix, edge list data frame, igraph object or tbl_graph object.")
   }
   return(formatted_matrix_list)
 }
+
+
 
 #' @title Helper function to expand adjacency matrices to include all unique nodes
 #' @description Expands formatted adjacency matrices to matching sizes
@@ -187,15 +212,14 @@ format_indata <- function(input_list) {
 #'
 #' @export
 
-dynetR <- function(matrix_list, structure_only = F) {
-  # format input data
+dynetR <- function(matrix_list, structure_only = FALSE) {
+  # Format input data
   matrix_list <- format_indata(matrix_list)
 
-  # replace with 0 / 1 if structural rew. only
-
-  if (structure_only == TRUE){
+  # Replace with 0 / 1 if structural rewiring only
+  if (structure_only) {
     matrix_list_str <- lapply(matrix_list, .structure_format)
-  } else if (structure_only == FALSE){
+  } else {
     matrix_list_str <- matrix_list
   }
 
@@ -205,16 +229,17 @@ dynetR <- function(matrix_list, structure_only = F) {
   # Calculate non-zero means of matrices
   nonZeroMean <- .sumMatrices(expanded_matrices)
 
-  # Calculate standardised weights (divided by non-zero means)
+  # Calculate standardized weights (divided by non-zero means)
   standardised <- lapply(expanded_matrices, "/", nonZeroMean)
   standardisedNoNan <- lapply(standardised, function(x) replace(x, is.nan(x), 0))
+
   # Calculate centroids of all node states by summing
   standardSums <- Reduce("+", standardisedNoNan)
 
-  # Calculate euclidean distance from node to centroid
+  # Calculate Euclidean distance from node to centroid
   centroid <- standardSums / length(standardisedNoNan)
 
-  # Subtract centroid values from standardised matrix
+  # Subtract centroid values from standardized matrix
   standardMinusCentroid <- lapply(standardisedNoNan, "-", centroid)
   sqr <- .squareMatrices(standardMinusCentroid)
   centDist <- .centroidDistance(sqr)
@@ -222,16 +247,17 @@ dynetR <- function(matrix_list, structure_only = F) {
   centFinalDist <- colSums(centDistBound)
   rewiring <- centFinalDist / (length(centDist) - 1)
 
-  # calculate degree and correct for it
-  unimatrix <- .union_adjacency_matrices(matrix_list)
-  unimatrix_dataframe <- graph_from_adjacency_matrix(unimatrix, mode = "undirected", diag = T) |>
+  # Calculate degree and correct for it
+  unimatrix <- .union_adjacency_matrices(matrix_list_str)
+
+  unimatrix_dataframe <- graph_from_adjacency_matrix(unimatrix, mode = "undirected", diag = TRUE) |>
     degree(mode = "all") |>
     as.data.frame() |>
     rownames_to_column()
-  # note that in the case of undirected graphs, an edge that starts and ends in the same node
-  # increases the corresponding degree value by 2 (i.e. it is counted twice)
+  # Note that in the case of undirected graphs, an edge that starts and ends at the same node
+  # increases the corresponding degree value by 2 (i.e., it is counted twice)
   unimatrix_dataframe <- unimatrix_dataframe |>
-    rename("name" = "rowname", "degree" = `degree(graph_from_adjacency_matrix(unimatrix, mode = "undirected", diag = T), mode = "all")`) |>
+    rename("name" = "rowname", "degree" = `degree(graph_from_adjacency_matrix(unimatrix, mode = "undirected", diag = TRUE), mode = "all")`) |>
     tibble()
 
   rewiring <- rewiring |>
@@ -241,23 +267,60 @@ dynetR <- function(matrix_list, structure_only = F) {
   output_dataframe <- left_join(rewiring, unimatrix_dataframe, by = "name") |>
     mutate(degree_corrected_rewiring = rewiring / degree)
 
-  # plot
+  # Return only the output_dataframe
+  return(output_dataframe)
+}
 
-  unimatrix_graph <- graph_from_adjacency_matrix(unimatrix, mode = "undirected", diag = T) |>
+#' @title Visualize the DyNet rewiring results
+#'
+#' @description Generates a network graph visualization based on the output from `dynetR`.
+#' @import igraph
+#' @import ggraph
+#' @import tidygraph
+#' @import ggplot2
+#' @import dplyr
+#' @param matrix_list List of adjacency matrices corresponding to the input networks.
+#' @param output_dataframe Dataframe output from the `dynetR` function.
+#' @param structure_only Logical, should match the `structure_only` parameter used in `dynetR`. Default is FALSE.
+#'
+#' @export
+
+dynetR_plot <- function(matrix_list, output_dataframe, structure_only = FALSE) {
+  # Format input data
+  matrix_list <- format_indata(matrix_list)
+
+  # Replace with 0 / 1 if structural rewiring only
+  if (structure_only) {
+    matrix_list_str <- lapply(matrix_list, .structure_format)
+  } else {
+    matrix_list_str <- matrix_list
+  }
+
+  # Generate unimatrix
+  unimatrix <- .union_adjacency_matrices(matrix_list_str)
+  unimatrix_graph <- graph_from_adjacency_matrix(unimatrix, mode = "undirected", diag = TRUE) |>
     as_tbl_graph() |>
     activate(nodes) |>
-    left_join(output_dataframe) |>
-      ggraph(layout = "nicely") +
-      geom_edge_link(start_cap = circle(3, 'mm'), end_cap = circle(3, "mm"), width =1, alpha = 0.5)+
-      geom_node_point(aes(fill = rewiring, size = degree), shape = 21) +
-      scale_fill_distiller(palette = "Reds", direction = 1) +
-      geom_node_text(aes(label = name, size = degree), repel = T, fontface = "bold", max.overlaps = 15) +
-      scale_size_continuous(range = c(6, 10)) +
-      theme_graph()
+    left_join(output_dataframe, by = "name") |>
+    ggraph(layout = "nicely") +
+    geom_edge_link(
+      start_cap = circle(3, 'mm'),
+      end_cap = circle(3, "mm"),
+      width = 1,
+      alpha = 0.5
+    ) +
+    geom_node_point(aes(fill = rewiring, size = degree), shape = 21) +
+    scale_fill_distiller(palette = "Reds", direction = 1) +
+    geom_node_text(
+      aes(label = name, size = degree),
+      repel = TRUE,
+      fontface = "bold",
+      max.overlaps = 15
+    ) +
+    scale_size_continuous(range = c(6, 10)) +
+    theme_graph()
 
-  # returned data
-  output <- list(output_dataframe, unimatrix_graph)
-  return(output)
+  return(unimatrix_graph)
 }
 
 #' @title Small multiples plot

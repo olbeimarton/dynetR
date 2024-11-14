@@ -1,7 +1,7 @@
 # dynetR
 R implementation of the DyNet network rewiring algorithm as described in [Goenawan et al., 2016](https://academic.oup.com/bioinformatics/article/32/17/2713/2450724).
 
-The main function, `dynetR` takes a **named[^1]** list of weighted[^2] edge lists[^3] or adjacency matrices[^4] to calculate rewiring values as described in the paper.
+The main function, `dynetR` takes a **named[^1]** list of weighted[^2] edge lists[^3], adjacency matrices[^4], igraph object or tbl_graph object (from tidygraph) to calculate rewiring values as described in the paper.
 
 [^1]: Important to help the user keep track of the input networks, especially for the small multiples plot.
 [^2]: Please make sure to use positive weights only.
@@ -45,14 +45,21 @@ el3 <- data.frame(from = c('1','2','4','3','0'),
 mList1 <- list('a' = el1, 'b' = el2,'c' = el3)
 ```
 
+**igraph list input example**
+```
+g1<-barabasi.game(n=5)
+g2<-barabasi.game(n=5)
+g3<-barabasi.game(n=5)
+gList1 <- list('a'=g1,'b'=g2,'c'=g3)
+```
+
 **Running dynetR**
  
  `output<-dynetR(mList)`
 
-The main function, `dynetR`, returns a list of items. The first item in the returned list is a dataframe with the node rewiring values: 
+The main function, `dynetR`, returns a dataframe with the node rewiring values: 
 ```
 > output
-[[1]]
   name rewiring degree degree_corrected_rewiring
 1    A 11.66336      7                  1.666195
 2    B 17.72024      7                  2.531463
@@ -61,7 +68,11 @@ The main function, `dynetR`, returns a list of items. The first item in the retu
 5    E 13.48869      7                  1.926956
 6    F 13.05306      5                  2.610611
 ```
-The second element is a simple plot visualising the union network and the rewiring values.
+
+The output of `dynetR` can be used with the `dynetR_plot` function to visualise a simple plot depicting the union network and the rewiring values.
+
+`dynetR_plot(mList, output)`
+
 
 ![output plot](example_plot.png)
 
@@ -81,3 +92,8 @@ The `small_multiples_plot` function returns a small multiples plot, focussing on
 `small_multiples_plot(mList, 'F')`
 
 ![output small multiples plot](small_multiples_example.png)
+
+
+**Upcoming functionalities**
+- Differential targeting analysis
+- Novel visualisation options
