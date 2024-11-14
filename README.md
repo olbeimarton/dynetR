@@ -96,6 +96,7 @@ The `small_multiples_plot` function returns a small multiples plot, focussing on
 ### Additional network comparison options
 
 **Jaccard-index**
+
 The `calculate_jaccard_indices` function takes the same input list of networks (edgelists, adjacency matrices etc.) as `dynetR` to calculate the Jaccard-index between all compared networks. This is useful for quickly establishing the global similarity of networks.
 
 ```
@@ -106,6 +107,7 @@ heatmap(jaccard)
 ![output of Jaccard comparison](jaccard_heatmap.png)
 
 **Differential targeting**
+
 When analysing directed networks, for example gene regulatory networks, it is often interesting to investigate whether certain genes receive more or less regulatory inputs from the available regulators. The `compare_targeting` function returns a long format dataframe containing the targeting values (weighted in-degree) for all nodes in all contrasts, and calculates their absolute differences and log2 ratios.
 
 compare_targeting(mList)
