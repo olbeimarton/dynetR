@@ -1,7 +1,7 @@
 # dynetR
 R implementation of the DyNet network rewiring algorithm as described in [Goenawan et al., 2016](https://academic.oup.com/bioinformatics/article/32/17/2713/2450724).
 
-The main function, `dynetR` takes a **named[^1]** list of weighted[^2] edge lists[^3], adjacency matrices[^4], igraph object or tbl_graph object (from tidygraph) to calculate rewiring values as described in the paper.
+The main function, `dynetR` takes a **named[^1]** list of weighted[^2] edge lists[^3], adjacency matrices[^4], igraph objects or tbl_graph objects (from tidygraph) to calculate rewiring values as described in the paper.
 
 [^1]: Important to help the user keep track of the input networks, especially for the small multiples plot.
 [^2]: Please make sure to use positive weights only.
