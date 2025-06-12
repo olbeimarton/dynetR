@@ -51,9 +51,9 @@ gList1 <- list('a'=g1,'b'=g2,'c'=g3)
 ```
 
 **Running dynetR**
- 
- `output<-dynetR(mList)`
-
+ ```
+output<-dynetR(mList)
+```
 The main function, `dynetR`, returns a dataframe with the node rewiring values: 
 ```
 > output
@@ -68,7 +68,7 @@ The main function, `dynetR`, returns a dataframe with the node rewiring values:
 
 The output of `dynetR` can be used with the `dynetR_plot` function to visualise a simple plot depicting the union network and the rewiring values.
 
-`dynetR_plot(mList, output)`
+```dynetR_plot(mList, output)```
 
 
 ![output plot](example_plot.png)
@@ -78,7 +78,7 @@ The output of `dynetR` can be used with the `dynetR_plot` function to visualise 
 
 By default, `dynetR` uses the weight values in the adjacency matrix / edge list to calculate rewiring. If you are only interested in rewiring changes caused by topological differences, set the `structure_only` parameter to `TRUE`, which will replace all non-zero values with `1`.
 
-`dynetR(mList, structure_only = T)`
+```dynetR(mList, structure_only = T)```
 
 **Small multiples plot**
 
@@ -86,7 +86,7 @@ A typical follow-up analysis usually involves a more in-depth study of the most 
 
 The `small_multiples_plot` function returns a small multiples plot, focussing on the interactions of a single node across the compared network states. The function requires two parameters, the input adjacency matrices and the name of the focus node, `F` in this example.
 
-`small_multiples_plot(mList, 'F')`
+```small_multiples_plot(mList, 'F')```
 
 ![output small multiples plot](small_multiples_example.png)
 
@@ -107,7 +107,7 @@ heatmap(jaccard)
 
 When analysing directed networks, for example gene regulatory networks, it is often interesting to investigate whether certain genes receive more or less regulatory inputs from the available regulators. The `compare_targeting` function returns a long format dataframe containing the targeting values (weighted in-degree) for all nodes in all contrasts, and calculates their absolute differences and log2 ratios.
 
-compare_targeting(mList)
+```compare_targeting(mList)```
 ```
 # A tibble: 48 × 6
    name  compared_networks targetingNet1    targetingNet2    deltaTargeting log2TargetingFC
