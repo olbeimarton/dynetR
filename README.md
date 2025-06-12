@@ -9,7 +9,7 @@ The main function, `dynetR` takes a **named[^1]** list of weighted[^2] edge list
 [^4]: Make sure to name at least the columns of the adj. matrix with the corresponding node names.
 
 To install the package use
-`devtools::install_github('olbeimarton/dynetR')`
+```devtools::install_github('olbeimarton/dynetR')```
 
 **Adjacency matrix input example**
 ```
