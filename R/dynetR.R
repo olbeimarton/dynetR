@@ -20,7 +20,7 @@
 #'
 #'
 .edgelist_to_adjacency <- function(el) {
-  g1 <- graph_from_data_frame(el)
+  g1 <- graph_from_data_frame(el, directed = FALSE)
   gdf1 <- as_adjacency_matrix(g1, attr = "weight", sparse = F)
 }
 
@@ -244,8 +244,9 @@ dynetR <- function(matrix_list, structure_only = FALSE) {
   sqr <- .squareMatrices(standardMinusCentroid)
   centDist <- .centroidDistance(sqr)
   centDistBound <- do.call(rbind, centDist)
-  centFinalDist <- colSums(centDistBound)
-  rewiring <- centFinalDist / (length(centDist) - 1)
+  centFinalDist <- colSums(centDistBound^2)
+  rewiring <- sqrt(centFinalDist / (length(centDist) - 1))
+
 
   # Calculate degree and correct for it
   unimatrix <- .union_adjacency_matrices(matrix_list_str)
