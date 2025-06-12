@@ -28,7 +28,7 @@ m2 <- matrix(rnorm(36, mean = 5), nrow = 6,  dimnames = list(c("A", "B","C","D",
 
 m5 <- matrix(rnorm(9, mean = 5), nrow = 3,  dimnames = list(c("A", "B","C"), c("A", "B","C")))`
                                                     
- mList <- list('a' = m1, 'b' = m2, 'c' = m3, 'd' = m4, 'e' = m5)`
+mList <- list('a' = m1, 'b' = m2, 'c' = m3, 'd' = m4, 'e' = m5)`
 ```
 
 **Edge list input example**
