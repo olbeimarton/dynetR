@@ -4,7 +4,7 @@
 \alias{dynetR}
 \title{Calculate the DyNet rewiring values for multiple graphs (adjacency matrices)}
 \usage{
-dynetR(matrix_list, structure_only = F)
+dynetR(matrix_list, structure_only = FALSE)
 }
 \arguments{
 \item{matrix_list}{List of adjacency matrices corresponding to the input networks.}
