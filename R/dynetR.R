@@ -20,7 +20,7 @@
 #'
 #'
 .edgelist_to_adjacency <- function(el) {
-  g1 <- graph_from_data_frame(el, directed = FALSE)
+  g1 <- graph_from_data_frame(el, directed = TRUE)
   gdf1 <- as_adjacency_matrix(g1, attr = "weight", sparse = F)
 }
 
@@ -86,8 +86,8 @@ format_indata <- function(input_list) {
 
     # Create an expanded matrix with all nodes
     expanded_matrix <- Matrix(0,
-      nrow = length(all_nodes), ncol = length(all_nodes),
-      dimnames = list(all_nodes, all_nodes), sparse = F
+                              nrow = length(all_nodes), ncol = length(all_nodes),
+                              dimnames = list(all_nodes, all_nodes), sparse = F
     )
 
     # Fill in the existing values
@@ -180,13 +180,11 @@ format_indata <- function(input_list) {
   return(squared_matrices)
 }
 
-#' Helper function to calculate the centroid distances
+#' Helper function to calculate the centroid distances (squared Euclidean distances per node)
+#' For directed graphs, each node's rewiring is computed over all incident edges
+#' (out-edges from the row + in-edges from the column, self-loops counted once).
 .centroidDistance <- function(matrices) {
-  result <- list()
-  for (matrixx in matrices) {
-    result[[length(result) + 1]] <- sqrt(rowSums(matrixx))
-  }
-  return(result)
+  lapply(matrices, function(m) rowSums(m) + colSums(m) - diag(m))
 }
 
 # Helper function to format matrix for structural rewiring
@@ -244,21 +242,21 @@ dynetR <- function(matrix_list, structure_only = FALSE) {
   sqr <- .squareMatrices(standardMinusCentroid)
   centDist <- .centroidDistance(sqr)
   centDistBound <- do.call(rbind, centDist)
-  centFinalDist <- colSums(centDistBound^2)
-  rewiring <- sqrt(centFinalDist / (length(centDist) - 1))
+  centFinalDist <- colSums(centDistBound)
+  rewiring <- centFinalDist / (length(centDist) - 1)
 
 
   # Calculate degree and correct for it
   unimatrix <- .union_adjacency_matrices(matrix_list_str)
 
-  unimatrix_dataframe <- graph_from_adjacency_matrix(unimatrix, mode = "undirected", diag = TRUE) |>
-    degree(mode = "all") |>
+  # Use directed graph; degree(mode="all") counts self-loops twice (in + out),
+  # so subtract diag(unimatrix) to count each self-loop once (matching Java/Cytoscape behaviour).
+  directed_union_graph <- graph_from_adjacency_matrix(unimatrix, mode = "directed", diag = TRUE)
+  edge_counts <- degree(directed_union_graph, mode = "all") - diag(unimatrix)
+  unimatrix_dataframe <- edge_counts |>
     as.data.frame() |>
-    rownames_to_column()
-  # Note that in the case of undirected graphs, an edge that starts and ends at the same node
-  # increases the corresponding degree value by 2 (i.e., it is counted twice)
-  unimatrix_dataframe <- unimatrix_dataframe |>
-    rename("name" = "rowname", "degree" = `degree(graph_from_adjacency_matrix(unimatrix, mode = "undirected", diag = TRUE), mode = "all")`) |>
+    rownames_to_column() |>
+    rename("name" = "rowname", "degree" = "edge_counts") |>
     tibble()
 
   rewiring <- rewiring |>
