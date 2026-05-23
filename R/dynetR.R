@@ -346,8 +346,8 @@ dynetR <- function(matrix_list, structure_only = FALSE) {
 #' @description Generates an empirical null distribution of rewiring scores by repeatedly
 #'   randomizing each input network with degree-sequence–preserving edge rewiring, then
 #'   computing p-values as the fraction of null scores \eqn{\ge} the observed score.
-#'   Benjamini-Hochberg adjusted q-values are also returned. Optionally computes pairwise
-#'   p-values and q-values for every pair of conditions.
+#'   Adjusted q-values are also returned using a user-chosen method. Optionally computes
+#'   pairwise p-values and q-values for every pair of conditions.
 #'
 #' @import igraph
 #' @import dplyr
@@ -363,6 +363,11 @@ dynetR <- function(matrix_list, structure_only = FALSE) {
 #'   the \code{structure_only} argument of \code{dynetR()}). Default FALSE.
 #' @param pairwise Logical. If TRUE, also compute pairwise rewiring scores and their
 #'   p-values / q-values for every pair of input conditions. Default FALSE.
+#' @param p_adjust_method Character. Multiple-testing correction method passed to
+#'   \code{\link[stats]{p.adjust}}. Any value accepted by \code{p.adjust.methods} is
+#'   valid: \code{"BH"} (Benjamini-Hochberg FDR; default), \code{"bonferroni"},
+#'   \code{"holm"}, \code{"hochberg"}, \code{"hommel"}, \code{"BY"} (Benjamini-Yekutieli),
+#'   or \code{"none"} to skip adjustment.
 #' @param n_cores Integer. Number of cores for parallel permutation iterations via
 #'   \code{parallel::mclapply}. Default 1 (sequential). On Windows, \code{mclapply}
 #'   falls back to 1 core regardless of this setting.
@@ -375,8 +380,8 @@ dynetR <- function(matrix_list, structure_only = FALSE) {
 #' @return A named list with:
 #' \describe{
 #'   \item{\code{scores}}{Data frame from \code{dynetR()} extended with columns
-#'     \code{p_value}, \code{q_value} (BH-adjusted), \code{p_value_degree_corrected},
-#'     and \code{q_value_degree_corrected}.}
+#'     \code{p_value}, \code{q_value} (adjusted per \code{p_adjust_method}),
+#'     \code{p_value_degree_corrected}, and \code{q_value_degree_corrected}.}
 #'   \item{\code{pairwise}}{(Only when \code{pairwise = TRUE}) Long data frame with columns
 #'     \code{node}, \code{comparison}, \code{observed_score}, \code{p_value}, \code{q_value}.}
 #'   \item{\code{n_iter}}{Number of iterations performed.}
@@ -386,13 +391,16 @@ dynetR <- function(matrix_list, structure_only = FALSE) {
 #' @export
 
 dynetR_significance <- function(networks,
-                                n_iter         = 1000L,
-                                directed       = TRUE,
-                                structure_only = FALSE,
-                                pairwise       = FALSE,
-                                n_cores        = 1L,
-                                seed           = NULL,
-                                verbose        = FALSE) {
+                                n_iter          = 1000L,
+                                directed        = TRUE,
+                                structure_only  = FALSE,
+                                pairwise        = FALSE,
+                                p_adjust_method = "BH",
+                                n_cores         = 1L,
+                                seed            = NULL,
+                                verbose         = FALSE) {
+
+  p_adjust_method <- match.arg(p_adjust_method, p.adjust.methods)
 
   if (!is.null(seed)) set.seed(seed)
 
@@ -487,8 +495,8 @@ dynetR_significance <- function(networks,
   # ── 7. P-values and BH q-values ───────────────────────────────────────────
   p_raw <- rowMeans(null_raw >= obs_scores$rewiring,                  na.rm = TRUE)
   p_dc  <- rowMeans(null_dc  >= obs_scores$degree_corrected_rewiring, na.rm = TRUE)
-  q_raw <- p.adjust(p_raw, method = "BH")
-  q_dc  <- p.adjust(p_dc,  method = "BH")
+  q_raw <- p.adjust(p_raw, method = p_adjust_method)
+  q_dc  <- p.adjust(p_dc,  method = p_adjust_method)
 
   result_scores <- obs_scores |>
     mutate(
@@ -507,7 +515,7 @@ dynetR_significance <- function(networks,
     pw_rows <- lapply(seq_along(pairs), function(pi) {
       obs_pw <- obs_pairwise_scores[[pi]][all_nodes]
       p_pw   <- rowMeans(null_pw[[pi]] >= obs_pw, na.rm = TRUE)
-      q_pw   <- p.adjust(p_pw, method = "BH")
+      q_pw   <- p.adjust(p_pw, method = p_adjust_method)
       tibble::tibble(
         node           = all_nodes,
         comparison     = pair_labels[pi],
