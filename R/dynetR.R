@@ -193,6 +193,29 @@ format_indata <- function(input_list) {
   return(outmat)
 }
 
+#' @title Compute degree data frame from the union of input networks
+#'
+#' @description Internal helper. Builds the union adjacency matrix across all networks,
+#'   constructs a directed igraph from it, and returns a data frame of node degrees.
+#'   Separated from \code{.compute_rewiring_scores()} so it can be called once and
+#'   reused across all null-distribution iterations.
+#'
+#' @param mat_list_str A list of (pre-expansion) adjacency matrices.
+#'
+.compute_degree_df <- function(mat_list_str) {
+  unimatrix <- .union_adjacency_matrices(mat_list_str)
+  # Use directed graph; degree(mode="all") counts self-loops twice (in + out),
+  # so subtract diag(unimatrix) to count each self-loop once (matching Java/Cytoscape behaviour).
+  directed_union_graph <- graph_from_adjacency_matrix(unimatrix, mode = "directed", diag = TRUE)
+  edge_counts <- degree(directed_union_graph, mode = "all") - diag(unimatrix)
+  edge_counts |>
+    as.data.frame() |>
+    rownames_to_column() |>
+    rename("name" = "rowname", "degree" = "edge_counts") |>
+    tibble()
+}
+
+
 #' @title Core rewiring score computation on pre-expanded matrices
 #'
 #' @description Internal helper that runs the standardisation → centroid → rewiring pipeline
@@ -201,10 +224,11 @@ format_indata <- function(input_list) {
 #'   for pairwise score derivation.
 #'
 #' @param expanded_matrices A list of same-dimension, named adjacency matrices.
-#' @param matrix_list_str The original (pre-expansion) list used to build the union graph for degree.
+#' @param degree_df A data frame with columns \code{name} and \code{degree}, as returned
+#'   by \code{.compute_degree_df()}. Passed in so degree need only be computed once.
 #' @param return_intermediate Logical; if TRUE also return \code{centDist} list.
 #'
-.compute_rewiring_scores <- function(expanded_matrices, matrix_list_str,
+.compute_rewiring_scores <- function(expanded_matrices, degree_df,
                                      return_intermediate = FALSE) {
   # Calculate non-zero means of matrices
   nonZeroMean <- .sumMatrices(expanded_matrices)
@@ -227,24 +251,11 @@ format_indata <- function(input_list) {
   centFinalDist <- colSums(centDistBound)
   rewiring <- centFinalDist / (length(centDist) - 1)
 
-  # Calculate degree and correct for it
-  unimatrix <- .union_adjacency_matrices(matrix_list_str)
-
-  # Use directed graph; degree(mode="all") counts self-loops twice (in + out),
-  # so subtract diag(unimatrix) to count each self-loop once (matching Java/Cytoscape behaviour).
-  directed_union_graph <- graph_from_adjacency_matrix(unimatrix, mode = "directed", diag = TRUE)
-  edge_counts <- degree(directed_union_graph, mode = "all") - diag(unimatrix)
-  unimatrix_dataframe <- edge_counts |>
-    as.data.frame() |>
-    rownames_to_column() |>
-    rename("name" = "rowname", "degree" = "edge_counts") |>
-    tibble()
-
   rewiring_df <- rewiring |>
     as.data.frame() |>
     tibble::rownames_to_column() |>
     rename("name" = "rowname")
-  output_dataframe <- left_join(rewiring_df, unimatrix_dataframe, by = "name") |>
+  output_dataframe <- left_join(rewiring_df, degree_df, by = "name") |>
     mutate(degree_corrected_rewiring = rewiring / degree)
 
   if (return_intermediate) {
@@ -324,8 +335,9 @@ dynetR <- function(matrix_list, structure_only = FALSE) {
 
   # Match matrix sizes
   expanded_matrices <- .expand_adjacency_matrices(matrix_list_str)
+  degree_df <- .compute_degree_df(matrix_list_str)
 
-  .compute_rewiring_scores(expanded_matrices, matrix_list_str)
+  .compute_rewiring_scores(expanded_matrices, degree_df)
 }
 
 
@@ -334,7 +346,8 @@ dynetR <- function(matrix_list, structure_only = FALSE) {
 #' @description Generates an empirical null distribution of rewiring scores by repeatedly
 #'   randomizing each input network with degree-sequence–preserving edge rewiring, then
 #'   computing p-values as the fraction of null scores \eqn{\ge} the observed score.
-#'   Optionally computes pairwise p-values for every pair of conditions.
+#'   Benjamini-Hochberg adjusted q-values are also returned. Optionally computes pairwise
+#'   p-values and q-values for every pair of conditions.
 #'
 #' @import igraph
 #' @import dplyr
@@ -349,16 +362,23 @@ dynetR <- function(matrix_list, structure_only = FALSE) {
 #' @param structure_only Logical. If TRUE, binarize matrices before scoring (matches
 #'   the \code{structure_only} argument of \code{dynetR()}). Default FALSE.
 #' @param pairwise Logical. If TRUE, also compute pairwise rewiring scores and their
-#'   p-values for every pair of input conditions. Default FALSE.
-#' @param seed Integer or NULL. Random seed for reproducibility. Default NULL.
-#' @param verbose Logical. Print progress every 100 iterations. Default FALSE.
+#'   p-values / q-values for every pair of input conditions. Default FALSE.
+#' @param n_cores Integer. Number of cores for parallel permutation iterations via
+#'   \code{parallel::mclapply}. Default 1 (sequential). On Windows, \code{mclapply}
+#'   falls back to 1 core regardless of this setting.
+#' @param seed Integer or NULL. Random seed for reproducibility. Default NULL. Note:
+#'   parallel runs use per-worker seeds derived from this value and may not reproduce
+#'   the exact same sequence as the sequential run.
+#' @param verbose Logical. Print progress every 100 iterations (sequential mode only).
+#'   Default FALSE.
 #'
 #' @return A named list with:
 #' \describe{
 #'   \item{\code{scores}}{Data frame from \code{dynetR()} extended with columns
-#'     \code{p_value} (based on raw rewiring) and \code{p_value_degree_corrected}.}
+#'     \code{p_value}, \code{q_value} (BH-adjusted), \code{p_value_degree_corrected},
+#'     and \code{q_value_degree_corrected}.}
 #'   \item{\code{pairwise}}{(Only when \code{pairwise = TRUE}) Long data frame with columns
-#'     \code{node}, \code{comparison}, \code{observed_score}, \code{p_value}.}
+#'     \code{node}, \code{comparison}, \code{observed_score}, \code{p_value}, \code{q_value}.}
 #'   \item{\code{n_iter}}{Number of iterations performed.}
 #'   \item{\code{seed}}{Seed used (or NA if none was set).}
 #' }
@@ -370,6 +390,7 @@ dynetR_significance <- function(networks,
                                 directed       = TRUE,
                                 structure_only = FALSE,
                                 pairwise       = FALSE,
+                                n_cores        = 1L,
                                 seed           = NULL,
                                 verbose        = FALSE) {
 
@@ -380,15 +401,16 @@ dynetR_significance <- function(networks,
   if (structure_only) {
     mat_list <- lapply(mat_list, .structure_format)
   }
-  expanded <- .expand_adjacency_matrices(mat_list)
+  expanded  <- .expand_adjacency_matrices(mat_list)
+  degree_df <- .compute_degree_df(mat_list)   # computed ONCE; reused every iteration
   net_names <- names(mat_list)
   if (is.null(net_names)) net_names <- paste0("Net", seq_along(mat_list))
 
   # ── 2. Observed scores ────────────────────────────────────────────────────
-  obs_full <- .compute_rewiring_scores(expanded, mat_list,
+  obs_full <- .compute_rewiring_scores(expanded, degree_df,
                                        return_intermediate = pairwise)
   if (pairwise) {
-    obs_scores  <- obs_full$scores
+    obs_scores   <- obs_full$scores
     obs_centDist <- obs_full$centDist   # list: one named numeric vector per network
   } else {
     obs_scores <- obs_full
@@ -397,93 +419,101 @@ dynetR_significance <- function(networks,
   all_nodes <- obs_scores$name
   n_nodes   <- length(all_nodes)
 
-  # ── 3. Pairwise observed scores ───────────────────────────────────────────
+  # ── 3. Pairwise setup ────────────────────────────────────────────────────
   if (pairwise) {
-    pairs        <- combn(seq_along(mat_list), 2, simplify = FALSE)
-    pair_labels  <- vapply(pairs, function(p)
+    pairs       <- combn(seq_along(mat_list), 2, simplify = FALSE)
+    pair_labels <- vapply(pairs, function(p)
       paste0(net_names[p[1]], "_vs_", net_names[p[2]]), character(1))
 
     .pairwise_score <- function(centDist_list, idx_pair) {
-      # sum of per-network centDist contributions for the two networks,
-      # normalized by (2 - 1) = 1  →  just the sum
       cd_i <- centDist_list[[idx_pair[1]]]
       cd_j <- centDist_list[[idx_pair[2]]]
-      # align by node name (names should already match)
-      (cd_i + cd_j) / 1
+      cd_i + cd_j
     }
 
-    obs_pairwise_scores <- lapply(pairs, function(p)
-      .pairwise_score(obs_centDist, p))
+    obs_pairwise_scores <- lapply(pairs, .pairwise_score, centDist_list = obs_centDist)
   }
 
-  # ── 4. Null distribution storage ─────────────────────────────────────────
-  # null_raw[node, iter], null_dc[node, iter]
-  null_raw <- matrix(NA_real_, nrow = n_nodes, ncol = n_iter,
-                     dimnames = list(all_nodes, NULL))
-  null_dc  <- matrix(NA_real_, nrow = n_nodes, ncol = n_iter,
-                     dimnames = list(all_nodes, NULL))
-
-  if (pairwise) {
-    # one matrix per pair
-    null_pw <- lapply(seq_along(pairs), function(i)
-      matrix(NA_real_, nrow = n_nodes, ncol = n_iter,
-             dimnames = list(all_nodes, NULL)))
-  }
-
-  # ── 5. Permutation loop ───────────────────────────────────────────────────
-  for (iter in seq_len(n_iter)) {
-    if (verbose && iter %% 100 == 0)
-      message("dynetR_significance: iteration ", iter, " / ", n_iter)
-
-    rand_list <- lapply(mat_list, .randomize_network,
-                        directed = directed, niter_multiplier = 10)
+  # ── 4. Single-iteration worker function ──────────────────────────────────
+  .one_iter <- function(iter_seed) {
+    if (!is.null(iter_seed)) set.seed(iter_seed)
+    rand_list     <- lapply(mat_list, .randomize_network,
+                            directed = directed, niter_multiplier = 10)
     rand_expanded <- .expand_adjacency_matrices(rand_list)
-
-    rand_full <- .compute_rewiring_scores(rand_expanded, rand_list,
-                                          return_intermediate = pairwise)
+    rand_full     <- .compute_rewiring_scores(rand_expanded, degree_df,
+                                              return_intermediate = pairwise)
     if (pairwise) {
       rand_scores   <- rand_full$scores
       rand_centDist <- rand_full$centDist
+      pw_cols <- lapply(pairs, .pairwise_score, centDist_list = rand_centDist)
     } else {
       rand_scores <- rand_full
+      pw_cols     <- NULL
     }
-
-    # align to all_nodes order (should already match, but be safe)
     idx <- match(all_nodes, rand_scores$name)
-    null_raw[, iter] <- rand_scores$rewiring[idx]
-    null_dc[, iter]  <- rand_scores$degree_corrected_rewiring[idx]
+    list(
+      raw = rand_scores$rewiring[idx],
+      dc  = rand_scores$degree_corrected_rewiring[idx],
+      pw  = pw_cols
+    )
+  }
 
-    if (pairwise) {
-      for (pi in seq_along(pairs)) {
-        pw_null <- .pairwise_score(rand_centDist, pairs[[pi]])
-        null_pw[[pi]][, iter] <- pw_null[all_nodes]
-      }
+  # ── 5. Run iterations ─────────────────────────────────────────────────────
+  n_cores <- as.integer(n_cores)
+  iter_seeds <- if (!is.null(seed)) seed + seq_len(n_iter) else vector("list", n_iter)
+
+  if (n_cores > 1L) {
+    results <- parallel::mclapply(iter_seeds, .one_iter, mc.cores = n_cores)
+  } else {
+    results <- vector("list", n_iter)
+    for (i in seq_len(n_iter)) {
+      if (verbose && i %% 100 == 0)
+        message("dynetR_significance: iteration ", i, " / ", n_iter)
+      results[[i]] <- .one_iter(iter_seeds[[i]])
     }
   }
 
-  # ── 6. P-value computation ────────────────────────────────────────────────
+  # ── 6. Collect null matrices ──────────────────────────────────────────────
+  null_raw <- do.call(cbind, lapply(results, `[[`, "raw"))
+  null_dc  <- do.call(cbind, lapply(results, `[[`, "dc"))
+  rownames(null_raw) <- all_nodes
+  rownames(null_dc)  <- all_nodes
+
+  if (pairwise) {
+    null_pw <- lapply(seq_along(pairs), function(pi)
+      do.call(cbind, lapply(results, function(r) r$pw[[pi]][all_nodes])))
+  }
+
+  # ── 7. P-values and BH q-values ───────────────────────────────────────────
   p_raw <- rowMeans(null_raw >= obs_scores$rewiring,                  na.rm = TRUE)
   p_dc  <- rowMeans(null_dc  >= obs_scores$degree_corrected_rewiring, na.rm = TRUE)
+  q_raw <- p.adjust(p_raw, method = "BH")
+  q_dc  <- p.adjust(p_dc,  method = "BH")
 
   result_scores <- obs_scores |>
-    mutate(p_value                  = p_raw,
-           p_value_degree_corrected = p_dc)
+    mutate(
+      p_value                      = p_raw,
+      q_value                      = q_raw,
+      p_value_degree_corrected     = p_dc,
+      q_value_degree_corrected     = q_dc
+    )
 
   out <- list(scores = result_scores,
               n_iter = n_iter,
               seed   = if (is.null(seed)) NA_integer_ else seed)
 
-  # ── 7. Pairwise p-values ──────────────────────────────────────────────────
+  # ── 8. Pairwise p/q-values ────────────────────────────────────────────────
   if (pairwise) {
     pw_rows <- lapply(seq_along(pairs), function(pi) {
-      obs_pw  <- obs_pairwise_scores[[pi]][all_nodes]
-      null_pw_mat <- null_pw[[pi]]
-      p_pw <- rowMeans(null_pw_mat >= obs_pw, na.rm = TRUE)
+      obs_pw <- obs_pairwise_scores[[pi]][all_nodes]
+      p_pw   <- rowMeans(null_pw[[pi]] >= obs_pw, na.rm = TRUE)
+      q_pw   <- p.adjust(p_pw, method = "BH")
       tibble::tibble(
         node           = all_nodes,
         comparison     = pair_labels[pi],
         observed_score = obs_pw,
-        p_value        = p_pw
+        p_value        = p_pw,
+        q_value        = q_pw
       )
     })
     out$pairwise <- dplyr::bind_rows(pw_rows)
