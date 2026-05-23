@@ -193,6 +193,107 @@ format_indata <- function(input_list) {
   return(outmat)
 }
 
+#' @title Core rewiring score computation on pre-expanded matrices
+#'
+#' @description Internal helper that runs the standardisation → centroid → rewiring pipeline
+#'   on an already-expanded list of adjacency matrices. Returns the output data frame plus,
+#'   when \code{return_intermediate = TRUE}, the per-network centroid-distance vectors needed
+#'   for pairwise score derivation.
+#'
+#' @param expanded_matrices A list of same-dimension, named adjacency matrices.
+#' @param matrix_list_str The original (pre-expansion) list used to build the union graph for degree.
+#' @param return_intermediate Logical; if TRUE also return \code{centDist} list.
+#'
+.compute_rewiring_scores <- function(expanded_matrices, matrix_list_str,
+                                     return_intermediate = FALSE) {
+  # Calculate non-zero means of matrices
+  nonZeroMean <- .sumMatrices(expanded_matrices)
+
+  # Calculate standardized weights (divided by non-zero means)
+  standardised <- lapply(expanded_matrices, "/", nonZeroMean)
+  standardisedNoNan <- lapply(standardised, function(x) replace(x, is.nan(x), 0))
+
+  # Calculate centroids of all node states by summing
+  standardSums <- Reduce("+", standardisedNoNan)
+
+  # Calculate Euclidean distance from node to centroid
+  centroid <- standardSums / length(standardisedNoNan)
+
+  # Subtract centroid values from standardized matrix
+  standardMinusCentroid <- lapply(standardisedNoNan, "-", centroid)
+  sqr <- .squareMatrices(standardMinusCentroid)
+  centDist <- .centroidDistance(sqr)
+  centDistBound <- do.call(rbind, centDist)
+  centFinalDist <- colSums(centDistBound)
+  rewiring <- centFinalDist / (length(centDist) - 1)
+
+  # Calculate degree and correct for it
+  unimatrix <- .union_adjacency_matrices(matrix_list_str)
+
+  # Use directed graph; degree(mode="all") counts self-loops twice (in + out),
+  # so subtract diag(unimatrix) to count each self-loop once (matching Java/Cytoscape behaviour).
+  directed_union_graph <- graph_from_adjacency_matrix(unimatrix, mode = "directed", diag = TRUE)
+  edge_counts <- degree(directed_union_graph, mode = "all") - diag(unimatrix)
+  unimatrix_dataframe <- edge_counts |>
+    as.data.frame() |>
+    rownames_to_column() |>
+    rename("name" = "rowname", "degree" = "edge_counts") |>
+    tibble()
+
+  rewiring_df <- rewiring |>
+    as.data.frame() |>
+    tibble::rownames_to_column() |>
+    rename("name" = "rowname")
+  output_dataframe <- left_join(rewiring_df, unimatrix_dataframe, by = "name") |>
+    mutate(degree_corrected_rewiring = rewiring / degree)
+
+  if (return_intermediate) {
+    return(list(scores = output_dataframe, centDist = centDist))
+  }
+  return(output_dataframe)
+}
+
+
+#' @title Degree-sequence–preserving network randomization
+#'
+#' @description Internal helper. Rewires edges of a single adjacency matrix while
+#'   preserving both in- and out-degree sequences (for directed graphs) using
+#'   \code{igraph::rewire(keeping_degseq(...))}.
+#'
+#' @param mat A square numeric adjacency matrix with row/col names.
+#' @param directed Logical; if TRUE treat the graph as directed.
+#' @param niter_multiplier Integer multiplier for the number of rewiring steps
+#'   (\code{ecount(g) * niter_multiplier}). Default 10.
+#'
+.randomize_network <- function(mat, directed = TRUE, niter_multiplier = 10) {
+  mode <- if (directed) "directed" else "undirected"
+  g <- igraph::graph_from_adjacency_matrix(mat, mode = mode, weighted = TRUE, diag = TRUE)
+  has_loops <- any(diag(mat) != 0)
+  n_edges <- igraph::ecount(g)
+  if (n_edges == 0) return(mat)   # nothing to rewire
+
+  g_rand <- igraph::rewire(g, with = igraph::keeping_degseq(
+    loops = has_loops,
+    niter  = max(1L, as.integer(n_edges * niter_multiplier))
+  ))
+
+  # Shuffle original non-zero weights onto the new edge set
+  # (keeping_degseq moves stubs but igraph does not carry weights;
+  #  we permute the observed weights randomly across the rewired edges)
+  orig_weights <- igraph::E(g)$weight
+  if (!is.null(orig_weights)) {
+    igraph::E(g_rand)$weight <- sample(orig_weights)
+  }
+
+  rand_mat <- as.matrix(igraph::as_adjacency_matrix(g_rand, attr = "weight", sparse = FALSE))
+  # Restore dimnames
+  node_names <- rownames(mat)
+  rownames(rand_mat) <- node_names
+  colnames(rand_mat) <- node_names
+  rand_mat
+}
+
+
 #' @title Calculate the DyNet rewiring values for multiple graphs (adjacency matrices)
 #'
 #' @description Calculates the Dn rewiring values for the nodes included in the networks
@@ -224,50 +325,171 @@ dynetR <- function(matrix_list, structure_only = FALSE) {
   # Match matrix sizes
   expanded_matrices <- .expand_adjacency_matrices(matrix_list_str)
 
-  # Calculate non-zero means of matrices
-  nonZeroMean <- .sumMatrices(expanded_matrices)
-
-  # Calculate standardized weights (divided by non-zero means)
-  standardised <- lapply(expanded_matrices, "/", nonZeroMean)
-  standardisedNoNan <- lapply(standardised, function(x) replace(x, is.nan(x), 0))
-
-  # Calculate centroids of all node states by summing
-  standardSums <- Reduce("+", standardisedNoNan)
-
-  # Calculate Euclidean distance from node to centroid
-  centroid <- standardSums / length(standardisedNoNan)
-
-  # Subtract centroid values from standardized matrix
-  standardMinusCentroid <- lapply(standardisedNoNan, "-", centroid)
-  sqr <- .squareMatrices(standardMinusCentroid)
-  centDist <- .centroidDistance(sqr)
-  centDistBound <- do.call(rbind, centDist)
-  centFinalDist <- colSums(centDistBound)
-  rewiring <- centFinalDist / (length(centDist) - 1)
+  .compute_rewiring_scores(expanded_matrices, matrix_list_str)
+}
 
 
-  # Calculate degree and correct for it
-  unimatrix <- .union_adjacency_matrices(matrix_list_str)
+#' @title Node-level significance for DyNet rewiring scores via Monte Carlo permutation
+#'
+#' @description Generates an empirical null distribution of rewiring scores by repeatedly
+#'   randomizing each input network with degree-sequence–preserving edge rewiring, then
+#'   computing p-values as the fraction of null scores \eqn{\ge} the observed score.
+#'   Optionally computes pairwise p-values for every pair of conditions.
+#'
+#' @import igraph
+#' @import dplyr
+#' @import tibble
+#' @import Matrix
+#'
+#' @param networks List of (named) adjacency matrices, edge-list data frames, igraph or
+#'   tbl_graph objects — identical input format to \code{dynetR()}.
+#' @param n_iter Integer. Number of permutation iterations. Default 1000.
+#' @param directed Logical. Whether to treat networks as directed when randomizing.
+#'   Default TRUE.
+#' @param structure_only Logical. If TRUE, binarize matrices before scoring (matches
+#'   the \code{structure_only} argument of \code{dynetR()}). Default FALSE.
+#' @param pairwise Logical. If TRUE, also compute pairwise rewiring scores and their
+#'   p-values for every pair of input conditions. Default FALSE.
+#' @param seed Integer or NULL. Random seed for reproducibility. Default NULL.
+#' @param verbose Logical. Print progress every 100 iterations. Default FALSE.
+#'
+#' @return A named list with:
+#' \describe{
+#'   \item{\code{scores}}{Data frame from \code{dynetR()} extended with columns
+#'     \code{p_value} (based on raw rewiring) and \code{p_value_degree_corrected}.}
+#'   \item{\code{pairwise}}{(Only when \code{pairwise = TRUE}) Long data frame with columns
+#'     \code{node}, \code{comparison}, \code{observed_score}, \code{p_value}.}
+#'   \item{\code{n_iter}}{Number of iterations performed.}
+#'   \item{\code{seed}}{Seed used (or NA if none was set).}
+#' }
+#'
+#' @export
 
-  # Use directed graph; degree(mode="all") counts self-loops twice (in + out),
-  # so subtract diag(unimatrix) to count each self-loop once (matching Java/Cytoscape behaviour).
-  directed_union_graph <- graph_from_adjacency_matrix(unimatrix, mode = "directed", diag = TRUE)
-  edge_counts <- degree(directed_union_graph, mode = "all") - diag(unimatrix)
-  unimatrix_dataframe <- edge_counts |>
-    as.data.frame() |>
-    rownames_to_column() |>
-    rename("name" = "rowname", "degree" = "edge_counts") |>
-    tibble()
+dynetR_significance <- function(networks,
+                                n_iter         = 1000L,
+                                directed       = TRUE,
+                                structure_only = FALSE,
+                                pairwise       = FALSE,
+                                seed           = NULL,
+                                verbose        = FALSE) {
 
-  rewiring <- rewiring |>
-    as.data.frame() |>
-    tibble::rownames_to_column() |>
-    rename("name" = "rowname")
-  output_dataframe <- left_join(rewiring, unimatrix_dataframe, by = "name") |>
-    mutate(degree_corrected_rewiring = rewiring / degree)
+  if (!is.null(seed)) set.seed(seed)
 
-  # Return only the output_dataframe
-  return(output_dataframe)
+  # ── 1. Preprocess inputs ──────────────────────────────────────────────────
+  mat_list <- format_indata(networks)
+  if (structure_only) {
+    mat_list <- lapply(mat_list, .structure_format)
+  }
+  expanded <- .expand_adjacency_matrices(mat_list)
+  net_names <- names(mat_list)
+  if (is.null(net_names)) net_names <- paste0("Net", seq_along(mat_list))
+
+  # ── 2. Observed scores ────────────────────────────────────────────────────
+  obs_full <- .compute_rewiring_scores(expanded, mat_list,
+                                       return_intermediate = pairwise)
+  if (pairwise) {
+    obs_scores  <- obs_full$scores
+    obs_centDist <- obs_full$centDist   # list: one named numeric vector per network
+  } else {
+    obs_scores <- obs_full
+  }
+
+  all_nodes <- obs_scores$name
+  n_nodes   <- length(all_nodes)
+
+  # ── 3. Pairwise observed scores ───────────────────────────────────────────
+  if (pairwise) {
+    pairs        <- combn(seq_along(mat_list), 2, simplify = FALSE)
+    pair_labels  <- vapply(pairs, function(p)
+      paste0(net_names[p[1]], "_vs_", net_names[p[2]]), character(1))
+
+    .pairwise_score <- function(centDist_list, idx_pair) {
+      # sum of per-network centDist contributions for the two networks,
+      # normalized by (2 - 1) = 1  →  just the sum
+      cd_i <- centDist_list[[idx_pair[1]]]
+      cd_j <- centDist_list[[idx_pair[2]]]
+      # align by node name (names should already match)
+      (cd_i + cd_j) / 1
+    }
+
+    obs_pairwise_scores <- lapply(pairs, function(p)
+      .pairwise_score(obs_centDist, p))
+  }
+
+  # ── 4. Null distribution storage ─────────────────────────────────────────
+  # null_raw[node, iter], null_dc[node, iter]
+  null_raw <- matrix(NA_real_, nrow = n_nodes, ncol = n_iter,
+                     dimnames = list(all_nodes, NULL))
+  null_dc  <- matrix(NA_real_, nrow = n_nodes, ncol = n_iter,
+                     dimnames = list(all_nodes, NULL))
+
+  if (pairwise) {
+    # one matrix per pair
+    null_pw <- lapply(seq_along(pairs), function(i)
+      matrix(NA_real_, nrow = n_nodes, ncol = n_iter,
+             dimnames = list(all_nodes, NULL)))
+  }
+
+  # ── 5. Permutation loop ───────────────────────────────────────────────────
+  for (iter in seq_len(n_iter)) {
+    if (verbose && iter %% 100 == 0)
+      message("dynetR_significance: iteration ", iter, " / ", n_iter)
+
+    rand_list <- lapply(mat_list, .randomize_network,
+                        directed = directed, niter_multiplier = 10)
+    rand_expanded <- .expand_adjacency_matrices(rand_list)
+
+    rand_full <- .compute_rewiring_scores(rand_expanded, rand_list,
+                                          return_intermediate = pairwise)
+    if (pairwise) {
+      rand_scores   <- rand_full$scores
+      rand_centDist <- rand_full$centDist
+    } else {
+      rand_scores <- rand_full
+    }
+
+    # align to all_nodes order (should already match, but be safe)
+    idx <- match(all_nodes, rand_scores$name)
+    null_raw[, iter] <- rand_scores$rewiring[idx]
+    null_dc[, iter]  <- rand_scores$degree_corrected_rewiring[idx]
+
+    if (pairwise) {
+      for (pi in seq_along(pairs)) {
+        pw_null <- .pairwise_score(rand_centDist, pairs[[pi]])
+        null_pw[[pi]][, iter] <- pw_null[all_nodes]
+      }
+    }
+  }
+
+  # ── 6. P-value computation ────────────────────────────────────────────────
+  p_raw <- rowMeans(null_raw >= obs_scores$rewiring,                  na.rm = TRUE)
+  p_dc  <- rowMeans(null_dc  >= obs_scores$degree_corrected_rewiring, na.rm = TRUE)
+
+  result_scores <- obs_scores |>
+    mutate(p_value                  = p_raw,
+           p_value_degree_corrected = p_dc)
+
+  out <- list(scores = result_scores,
+              n_iter = n_iter,
+              seed   = if (is.null(seed)) NA_integer_ else seed)
+
+  # ── 7. Pairwise p-values ──────────────────────────────────────────────────
+  if (pairwise) {
+    pw_rows <- lapply(seq_along(pairs), function(pi) {
+      obs_pw  <- obs_pairwise_scores[[pi]][all_nodes]
+      null_pw_mat <- null_pw[[pi]]
+      p_pw <- rowMeans(null_pw_mat >= obs_pw, na.rm = TRUE)
+      tibble::tibble(
+        node           = all_nodes,
+        comparison     = pair_labels[pi],
+        observed_score = obs_pw,
+        p_value        = p_pw
+      )
+    })
+    out$pairwise <- dplyr::bind_rows(pw_rows)
+  }
+
+  return(out)
 }
 
 #' @title Visualize the DyNet rewiring results
